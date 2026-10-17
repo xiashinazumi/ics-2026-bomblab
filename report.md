@@ -127,6 +127,7 @@
 
 - 执行objdump命令获取汇编代码
 
+
   > `objdump -d --no-show-raw-insn --disassemble=phase_02 ./bomb`
 
 ```assembly
