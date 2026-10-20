@@ -196,8 +196,8 @@
 
 - 分析
 
-  > 传参与 Phase 01 同理：序言中 `r12 = input`，`r13 = challenge`。
-  > `4020fd: mov $0x6,%esi` 后调用 `valid_u32_fields(input, 6)`，同时结合sscanf函数可知 input 由 **6 个** uint32 整数组成。
+  > 传参与Phase01 同理： `r12 = input`，`r13 = challenge`。
+  > `4020fd: mov $0x6,%esi` 后调用 `valid_u32_fields(input, 6)`，同时结合sscanf函数可知 input 由 6 个uint32整数组成。
   >
   > sscanf 之后（40215a 起）是判定逻辑，记 challenge 为 x、6 个整数为 a[0..5]。
   > 
@@ -271,30 +271,31 @@
   4022e0:       xor    %eax,%eax
   4022e2:       lea    -0x14(%rbp),%rcx  ; &a[1]
   4022e6:       lea    -0x18(%rbp),%rdx  ; &a[0]
-  4022ea:       mov    $0x403186,%esi    ; 格式串地址
+  4022ea:       mov    $0x403186,%esi    
   4022ef:       mov    %rbx,%rdi
   4022f2:       call   4011e0 <__isoc99_sscanf@plt>
-  4022f7:       cmp    $0x2,%eax         ; 须匹配 2 个
+  4022f7:       cmp    $0x2,%eax         
   4022fa:       jne    4022d3
   4022fc:       mov    %r12d,%edi        ; edi = challenge 低32位
   402301:       and    $0x7,%edi         ; edi = challenge & 7
-  402304:       cmp    %edi,-0x18(%rbp)  ; a[0] 必须等于 challenge & 7
+  402304:       cmp    %edi,-0x18(%rbp)  ; a[0]= challenge & 7
   402307:       jne    4022d5
   402309:       mov    %r12,%rax
   40230c:       mov    %r12,%rsi
-  40230f:       shr    $0x3,%rax         ; rax = challenge >> 3
-  402313:       shr    $0x20,%rsi        ; rsi = challenge >> 32
-  402317:       xor    %eax,%esi         ; esi = (challenge>>3) ^ (challenge>>32)
+  40230f:       shr    $0x3,%rax        
+  402313:       shr    $0x20,%rsi        
+  402317:       xor    %eax,%esi         
+  ; esi = (challenge>>3) ^ (challenge>>32)
   402319:       call   402250 <p3_dispatch>
-  40231e:       cmp    %eax,-0x14(%rbp)  ; a[1] 必须等于 dispatch 返回值
+  40231e:       cmp    %eax,-0x14(%rbp)  ; a[1] 等于 dispatch 返回值
   402321:       sete   %al
   402324:       jmp    4022d5
 ```
 
 - 分析
 
-  > 格式串 `0x403186` 静态查询（`objdump -s -j .rodata --start-address=0x403186 --stop-address=0x40318c ./bomb`）得 `"%u %u"`，input 为 2 个整数。
-  > `a[0]` 直接等于 `challenge & 7`；`a[1]` 等于 `p3_dispatch(index, y)` 的返回值，其中 `index = challenge & 7`，`y = (uint32_t)(challenge>>3) ^ (uint32_t)(challenge>>32)`。
+  > input 为2个uint32整数。
+  > `a[0]` 等于 `challenge & 7`；`a[1]` 等于 `p3_dispatch(index, y)` 的返回值，其中 `index = challenge & 7`，`y = (uint32_t)(challenge>>3) ^ (uint32_t)(challenge>>32)`。
   >
   > `p3_dispatch` 是一个 switch 跳转表（`objdump -d --no-show-raw-insn --start-address=0x402250 --stop-address=0x402260 ./bomb`）：
   >
@@ -302,11 +303,11 @@
   > 402254: mov %edi,%eax              ; eax = index
   > 402256: mov %esi,%edi              ; edi = y
   > 402258: cmp $0x7,%eax
-  > 40225b: ja  4022a5                 ; index > 7 走 default，返回 0
-  > 40225d: notrack jmp *0x405820(,%rax,8)  ; 间接跳转：table[index] → case 入口
+  > 40225b: ja  4022a5                 
+  > 40225d: notrack jmp *0x405820(,%rax,8) 
   > ```
   >
-  > 跳转表位于 `.rodata` 的 `0x405820`，共 8 条 64 位地址，gdb 查看（`x/8xg 0x405820`）：
+  > 跳转表位于 `.rodata` 的 `0x405820`，共8条地址，可使用gdb 查看（`x/8xg 0x405820`）：
   >
   > ```
   > 索引 0: 0x402278    索引 1: 0x402280
@@ -315,7 +316,7 @@
   > 索引 6: 0x402268    索引 7: 0x402270
   > ```
   >
-  > 每个表项指向一个 jmp 跳板，再跳到对应的 `p3_case_N`（`objdump -d --no-show-raw-insn --start-address=0x402268 --stop-address=0x4022b0 ./bomb`）：
+  > 每个表项指向一个 jmp 指令，再跳到对应的 `p3_case_N`（`objdump -d --no-show-raw-insn --start-address=0x402268 --stop-address=0x4022b0 ./bomb`）：
   >
   > ```assembly
   > 402268: jmp 4021a0 <p3_case_0>     ; 索引 6
@@ -328,44 +329,42 @@
   > 4022a0: jmp 402200 <p3_case_5>     ; 索引 5
   > ```
   >
-  > **注意：索引和 case 编号不是一一对应的**，表项的物理顺序由编译器决定，直接按函数名里的数字对号入座会得到错误答案。
-  >
-  > 8 个 case 函数的反汇编（`objdump -d --no-show-raw-insn --start-address=0x4021a0 --stop-address=0x402250 ./bomb`，每个都很短）：
+  > 8个 case 函数的反汇编（`objdump -d --no-show-raw-insn --start-address=0x4021a0 --stop-address=0x402250 ./bomb`）：
   >
   > ```assembly
-  > 00000000004021a0 <p3_case_0>:            ; 索引 6
-  >   4021a4: mov %edi,%eax
-  >   4021a6: shr $1,%edi
+  >00000000004021a0 <p3_case_0>:            ; 索引 6
+  > 4021a4: mov %edi,%eax
+  > 4021a6: shr $1,%edi
   >   4021a8: xor $0x8ab8,%eax
   >   4021ad: add %edi,%eax                  ; (y>>1) + (y ^ 0x8ab8)
-  >
-  > 00000000004021b0 <p3_case_1>:            ; 索引 2
-  >   4021b4: lea 0x0(,%rdi,4),%eax
-  >   4021bb: xor $0x4a9e,%eax               ; 4*y ^ 0x4a9e
-  >
-  > 00000000004021d0 <p3_case_2>:            ; 索引 3
-  >   4021d4: lea 0x6dbf(%rdi,%rdi,4),%eax   ; 5*y + 0x6dbf
-  >
-  > 00000000004021e0 <p3_case_3>:            ; 索引 0
-  >   4021e4: lea 0xadd1(%rdi,%rdi,2),%eax   ; 3*y + 0xadd1
-  >
-  > 00000000004021f0 <p3_case_4>:            ; 索引 4
-  >   4021f4: lea 0xb823(%rdi,%rdi,2),%eax   ; 3*y + 0xb823
-  >
-  > 0000000000402200 <p3_case_5>:            ; 索引 5
-  >   402204: mov %edi,%eax
-  >   402206: shr $0x2,%edi
+  >   
+  >   00000000004021b0 <p3_case_1>:            ; 索引 2
+  >4021b4: lea 0x0(,%rdi,4),%eax
+  > 4021bb: xor $0x4a9e,%eax               ; 4*y ^ 0x4a9e
+  >   
+  >   00000000004021d0 <p3_case_2>:            ; 索引 3
+  >4021d4: lea 0x6dbf(%rdi,%rdi,4),%eax   ; 5*y + 0x6dbf
+  > 
+  >   00000000004021e0 <p3_case_3>:            ; 索引 0
+  >4021e4: lea 0xadd1(%rdi,%rdi,2),%eax   ; 3*y + 0xadd1
+  > 
+  >   00000000004021f0 <p3_case_4>:            ; 索引 4
+  >4021f4: lea 0xb823(%rdi,%rdi,2),%eax   ; 3*y + 0xb823
+  > 
+  >   0000000000402200 <p3_case_5>:            ; 索引 5
+  >402204: mov %edi,%eax
+  > 402206: shr $0x2,%edi
   >   402209: xor $0xc191,%eax
   >   40220e: add %edi,%eax                  ; (y>>2) + (y ^ 0xc191)
-  >
-  > 0000000000402220 <p3_case_6>:            ; 索引 7
-  >   402224: lea 0x0(,%rdi,4),%eax
-  >   40222b: xor $0x37b8,%eax               ; 4*y ^ 0x37b8
-  >
-  > 0000000000402240 <p3_case_7>:            ; 索引 1
-  >   402244: lea 0x49e7b(%rdi,%rdi,4),%eax  ; 5*y + 0x49e7b
+  >   
+  >   0000000000402220 <p3_case_6>:            ; 索引 7
+  >402224: lea 0x0(,%rdi,4),%eax
+  > 40222b: xor $0x37b8,%eax               ; 4*y ^ 0x37b8
+  >   
+  >   0000000000402240 <p3_case_7>:            ; 索引 1
+  >402244: lea 0x49e7b(%rdi,%rdi,4),%eax  ; 5*y + 0x49e7b
   > ```
-
+  
 - 恢复出的计算关系（伪代码）：
 
   ```c
@@ -409,23 +408,24 @@
   4023c1:       jne    4023d0
   ; ... 失败返回 ...
   4023d0:       xor    %eax,%eax
-  4023d2:       lea    -0x14(%rbp),%rdx  ; 输出槽地址
-  4023d6:       mov    $0x403189,%esi    ; 格式串 "%u"（同 Phase 01）
+  4023d2:       lea    -0x14(%rbp),%rdx  
+  4023d6:       mov    $0x403189,%esi    
   4023db:       mov    %rbx,%rdi
   4023de:       call   4011e0 <__isoc99_sscanf@plt>
   4023e3:       cmp    $0x1,%eax
   4023e6:       jne    4023c3
-  4023e8:       mov    %r12,%rcx         ; rcx = challenge
-  4023eb:       mov    %r12,%rax         ; rax = challenge
-  4023ee:       mov    %r12d,%edi        ; edi = challenge 低32位
-  4023f1:       xor    %esi,%esi         ; esi = 0
+  4023e8:       mov    %r12,%rcx        
+  4023eb:       mov    %r12,%rax        
+  4023ee:       mov    %r12d,%edi        
+  4023f1:       xor    %esi,%esi         
   4023f3:       shr    $0x20,%rax        ; rax = challenge >> 32
   4023f7:       shr    $0x7,%rcx         ; rcx = challenge >> 7
   4023fb:       and    $0x7f,%edi        ; edi = challenge & 0x7f
   4023fe:       mov    $0x7f,%edx        ; edx = 0x7f
-  402403:       xor    %eax,%ecx         ; ecx = (challenge>>32) ^ (challenge>>7)
+  402403:       xor    %eax,%ecx         
+  ; ecx = (challenge>>32) ^ (challenge>>7)
   402405:       call   402330 <p4_walk>
-  40240a:       cmp    %eax,-0x14(%rbp)  ; 输入值 == 返回值
+  40240a:       cmp    %eax,-0x14(%rbp)  
   40240d:       sete   %al
   402410:       add    $0x10,%rsp
   ; ... 返回 ...
@@ -433,7 +433,7 @@
 
 - 分析
 
-  > 格式串同 Phase 01（`0x403189` → `"%u"`），input 为 1 个整数。
+  > input 为1个整数。
   > 调用 `p4_walk` 的四个参数：`edi = challenge & 0x7f`（target），`esi = 0`（lo），`edx = 0x7f`（hi），`ecx = (challenge>>32) ^ (challenge>>7)`（key）。
   >
   > 递归函数 `p4_walk`（`objdump -d --no-show-raw-insn --disassemble=p4_walk ./bomb`）：
@@ -444,42 +444,41 @@
   > 402338: sub %esi,%edi           
   > 40233a: shr $1,%edi             
   > 40233c: add %esi,%edi            ; edi = mid = ((hi-lo)>>1) + lo
-  > 40233e: cmp %eax,%edi            ; mid == target ?
+  > 40233e: cmp %eax,%edi            ; mid == target
   > 402340: je  402390               ; → base case
   >
-  > ; 递归路径（建栈帧保存 temp）
   > 402347: lea (%rdi,%rcx,1),%ebx   ; ebx = mid + key（temp）
-  > 40234e: cmp %edi,%eax            ; target < mid ?
+  > 40234e: cmp %edi,%eax            ; target < mid
   > 402350: jb  402370               ; → 左分支
-  >
-  > ; 右分支（target > mid）
+  > 
+  >; 右分支（target > mid）
   > 402352: lea 0x1(%rdi),%esi       ; lo = mid + 1
-  > 402355: mov %eax,%edi            ; target 不变
+  > 402355: mov %eax,%edi            
   > 402357: call 402330 <p4_walk>    ; 递归
   > 40235c: lea (%rax,%rax,2),%eax   ; result * 3
   > 40235f: xor %ebx,%eax            ; ^ temp
   > 402365: leave
   > 402366: xor $0x5,%eax            ; ^ 0x5
   > 402369: ret
-  >
-  > ; 左分支（target < mid）
+  > 
+  >; 左分支（target < mid）
   > 402370: lea -0x1(%rdi),%edx      ; hi = mid - 1
-  > 402373: mov %eax,%edi            ; target 不变
+  > 402373: mov %eax,%edi           
   > 402375: call 402330 <p4_walk>    ; 递归
   > 40237a: lea (%rax,%rax,2),%eax   ; result * 3
   > 40237d: xor %ebx,%eax            ; ^ temp
   > 402383: leave
   > 402384: xor $0x1,%eax            ; ^ 0x1
   > 402387: ret
-  >
-  > ; base case
+  > 
+  >; base case
   > 402390: lea 0x5b(%rdi),%eax      ; eax = mid + 0x5b
   > 402393: xor %ecx,%eax            ; ^ key
   > 402395: ret
   > ```
-  >
-  > 这是一个**二分查找式的递归**：每次取 `mid = ((hi-lo)>>1) + lo` 与 target 比较，向对应半区递归，直到 mid == target。每层递归返回时乘 3、异或 `mid + key`、再异或一个常数（左分支 `0x1`，右分支 `0x5`）。
-
+  > 
+  >这是一个二分查找的递归：每次取 `mid = ((hi-lo)>>1) + lo` 与 target 比较，向对应半区递归，直到 mid == target。每层递归返回时乘 3、异或 `mid + key`、再异或一个常数（左分支 `0x1`，右分支 `0x5`）。
+  
 - 恢复出的计算关系（伪代码）：
 
   ```c
@@ -510,8 +509,7 @@
 0000000000402480 <phase_05>:
   402480:       endbr64
   ; ... 序言：r12 = challenge, rbx = input, count = 2 ...
-  40249a:       call   402c80 <valid_u32_fields>   ; valid_u32_fields(input, 2)
-  ; ... 格式校验失败则返回 0 ...
+  40249a:       call   402c80 <valid_u32_fields>   
   4024b0:       xor    %eax,%eax
   4024b2:       lea    -0x18(%rbp),%rcx            ; &a[1]
   4024b6:       lea    -0x1c(%rbp),%rdx            ; &a[0]
@@ -546,23 +544,25 @@
   > 40242a: mov %rsi,%r8                 ; r8 = 输出槽指针
   > 40242d: and $0x7,%eax                ; index = challenge & 7
   > 402430: shr $0x3,%rcx                ; rcx = challenge >> 3
-  > 402434: mov 0x405b60(,%rax,8),%rdx   ; rdx = p5_heads[index]（8 字节指针数组）
+  > 402434: mov 0x405b60(,%rax,8),%rdx   
+  > ; rdx = p5_heads[index]（8 字节指针数组）
   > 40243c: mov %rdi,%rax
   > 40243f: shr $0x20,%rdi
   > 402443: shr $0x6,%rax
-  > 402447: xor %edi,%eax                ; eax = (challenge>>6) ^ (challenge>>32)
+  > 402447: xor %edi,%eax                
+  > ; eax = (challenge>>6) ^ (challenge>>32)
   > 402449: mov 0x4(%rdx),%esi           ; esi = node->next_index（+0x4 字段）
   > 40244c: mov %ecx,%edi
   > 40244e: xor $0x26d9,%eax
   > 402453: add (%rdx),%eax              ; eax += node->value（+0x0 字段）
   > 402455: lea (%rax,%rax,4),%eax       ; eax *= 5
   > 402458: mov %esi,(%r8)               ; *out = next_index
-  > 40245b: xor %esi,%eax                ; eax ^= next_index（字段的值，不是地址）
+  > 40245b: xor %esi,%eax                ; eax ^= next_index
   > 40245d: and $0x3,%edi                ; remain = (challenge>>3) & 3
   > 402460: je  40247f                   ; remain == 0 则直接返回
   > ; ── 循环体 ──
   > 402462: mov $0x1,%ecx                ; i = 1
-  > 402467: mov 0x8(%rdx),%rdx           ; rdx = node->next（+0x8 字段，指针追逐）
+  > 402467: mov 0x8(%rdx),%rdx           ; rdx = node->next（+0x8 字段）
   > 40246b: add $0x1,%ecx
   > 40246e: mov 0x4(%rdx),%esi
   > 402471: add (%rdx),%eax              ; result += node->value
@@ -574,17 +574,16 @@
   > 40247f: ret
   > ```
   >
-  > **链表结构的识别**：rdx 被反复用作内存基址（`(%rdx)`、`0x4(%rdx)`、`0x8(%rdx)`），说明它指向结构体；`mov 0x8(%rdx),%rdx` 把"旧节点 +8 处的内容"写回 rdx 自身，即 `node = node->next` 的指针追逐。结构体布局：
+  > **链表结构的识别**：rdx 被反复用作内存基址（`(%rdx)`、`0x4(%rdx)`、`0x8(%rdx)`），说明它指向结构体；`mov 0x8(%rdx),%rdx` 即 `node = node->next` 。结构体布局：
   >
   > ```c
   > struct Node {
-  >     uint32_t value;        // +0x0
-  >     uint32_t next_index;   // +0x4
-  >     struct Node *next;     // +0x8
-  > };                          // 共 16 字节（对齐）
+  >  uint32_t value;        // +0x0
+  >  uint32_t next_index;   // +0x4
+  >  struct Node *next;     // +0x8
+  > };                         
   > ```
   >
-  > **静态数据挖掘**：bomb 是 non-PIE，节点表固定在 `.rodata`，可通过：
   > `objdump -s -j .rodata --start-address=0x405b60 --stop-address=0x405c60 ./bomb`
   >
   > 按小端序解析得 `p5_heads`（8 个指针）+ 12 个节点：
@@ -607,7 +606,7 @@
   > heads = {K, J, B, L, C, F, I, A}。所有 next 串起来是一条完整长链 `K→J→B→L→C→F→I→A→H→G→E→D→NULL`
   >
   
-- 恢复出的计算关系
+- 恢复出的代码
 
   ```c
   int node = heads[challenge & 7];
@@ -637,9 +636,9 @@
 ```assembly
 00000000004025d0 <phase_06>:
   ; ... 序言：rbx = input, r12 = challenge, count = 1 ...
-  4025ea:       call   402c80 <valid_u32_fields>   ; valid_u32_fields(input, 1)
+  4025ea:       call   402c80 <valid_u32_fields>   
  
-  402602:       lea    -0x14(%rbp),%rdx            ; 输出槽地址
+  402602:       lea    -0x14(%rbp),%rdx            
   402606:       mov    $0x403189,%esi              
   40260b:       mov    %rbx,%rdi
   40260e:       call   4011e0 <__isoc99_sscanf@plt>
@@ -653,7 +652,7 @@
 
 - 分析
 
-  > 口令为 1 个整数，等于 `p6_dispatch(challenge)` 的返回值。
+  > 口令为1个uint32整数，等于 `p6_dispatch(challenge)` 的返回值。
   > 本关的 `p6_ops` 为**函数指针表**，dispatch 里包含两次 `call *` 间接调用：
   >
   > ```assembly
@@ -663,20 +662,20 @@
   > 402593: shr $0x20,%rax
   > 402597: xor %eax,%edi               ; edi = para1 = (c>>6) ^ (c>>32)
   > 402599: mov %rbx,%rax
-  > 4025a0: and $0x38,%ebx              ; rbx = challenge & 0x38
-  > 4025a3: and $0x7,%eax               ; eax = challenge & 7（第一个下标）
+  > 4025a0: and $0x38,%ebx              
+  > 4025a3: and $0x7,%eax           
   > 4025a6: call *0x405e00(,%rax,8)     ; r1 = p6_ops[c & 7](para1)
   > 4025ad: xor $0xbd7c,%eax
   > 4025b2: mov %eax,%edi               ; para1 = r1 ^ 0xbd7c
-  > 4025b4: call *0x405e00(%rbx)        ; r2 = p6_ops[?](para1)，见下
+  > 4025b4: call *0x405e00(%rbx)        ; r2 = p6_ops[(c >> 3) &7](para1)
   > 4025bf: add $0xe486,%eax            ; 返回值 = r2 + 0xe486
   > ```
   >
-  > **第二次调用的下标**：`call *0x405e00(%rbx)` 原本是基址 + 偏移。`challenge & 0x38`（0x38 = 0b111000）结果均为 8 的倍数，等价于下标 `(challenge >> 3) & 7`——掩码同时编码了「下标占 3 位」和「表项大小 8 字节」两个信息。
+  > **第二次调用的下标**：`call *0x405e00(%rbx)` 原本是基址 + 偏移。`challenge & 0x38`（0x38 = 0b111000）结果均为 8 的倍数，等价于下标 `(challenge >> 3) & 7`
   >
   > 函数指针表位于 `.rodata` 的 `0x405e00`，8 条 64 位地址：
   > `objdump -s -j .rodata --start-address=0x405e00 --stop-address=0x405e40 ./bomb`
-  > 按小端序解析，得到 index → op 函数的映射（**同样不是按编号顺序**）：
+  > 按小端序解析，得到 index → op 函数的映射
   >
   > | index | 表项地址 | 函数 | index | 表项地址 | 函数 |
   > |---|---|---|---|---|---|
@@ -728,8 +727,8 @@
   >
   > ```assembly
   > 40162f: call 402830 <transcript_context>  
-  > ; rax = context（由 6 行答案算出，源码见 challenge.c）
-  > 401634: mov $0x7,%esi                     ; phase 编号 7
+  > ; rax = context（由前面6个phase算出，源码见 challenge.c）
+  > 401634: mov $0x7,%esi                     
   > 401640: mov %rax,%rbx
   > 401643: call 402c60 <phase_challenge>     ; rax = challenge
   > 401648: mov %rbx,%rdx                     ; 参数3 = context
@@ -743,9 +742,9 @@
 
 - 分析
 
-  > 1. **行长检查**：`strlen(line)` 后 `sub $0x24` + `cmp $0x7f` + `jbe` 是无符号区间检查——长度 < 36 时减法回绕成巨大无符号数而失败，合法行长 **36 ~ 163**。
-  > 2. **secret_copy** 是逐字节原样拷贝（到 `'\0'` 为止），无变换。
-  > 3. **"OPEN" 的位置**：`cmpl $0x4e45504f,-0xb0(%rbp)` 检查的是缓冲区**偏移 32**（拷贝基址 -0xd0 + 0x20 = -0xb0），`0x4e45504f` 小端即 ASCII "OPEN"；`secret_phase` 拿到的 `rdi = -0xac(%rbp)` 是**偏移 36** 起的子串。因此行格式为 `[32 字节任意前缀]["OPEN"][3 个整数]`——前缀内容不被检查，长度下界 36 由此而来。
+  > 1. **行长检查**：`strlen(line)` 后 `sub $0x24` + `cmp $0x7f` + `jbe` 是无符号区间检查——长度 < 36时候失败，合法行长 **36 ~ 163**。
+  > 2. **secret_copy** 是逐字节原样拷贝（到 `'\0'` 为止）
+  > 3. **"OPEN" 的位置**：`cmpl $0x4e45504f,-0xb0(%rbp)` 检查的是缓冲区**偏移 32**（拷贝基址 -0xd0 + 0x20 = -0xb0），`0x4e45504f` 小端即 ASCII "OPEN"；`secret_phase` 拿到的 `rdi = -0xac(%rbp)` 是**偏移 36** 起的子串。因此行格式为 `[32 字节任意前缀]["OPEN"][3 个整数]`
   > 4. **secret_phase 的三条校验**（记 c = challenge，ctx = context，全部按 uint32 截断）：
   >
   > ```assembly
